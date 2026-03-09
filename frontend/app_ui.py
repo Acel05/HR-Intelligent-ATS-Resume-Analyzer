@@ -3,13 +3,11 @@ import pandas as pd
 import requests
 import io
 
-st.set_page_config(page_title="HR Talent Analytics - Lion Parcel", layout="wide")
-st.title("🦁 HR Intelligent CV Dashboard - Lion Parcel")
+st.set_page_config(page_title="ATS Resume Analyzer - Lion Parcel", layout="wide")
+st.title("🦁 ATS Resume Analyzer - Lion Parcel")
 
-# URL Backend API (Hardcoded)
 API_BASE_URL = "http://localhost:8000/api"
 
-# 1. Inisialisasi Session State
 if 'analysis_done' not in st.session_state:
     st.session_state.analysis_done = False
 if 'df' not in st.session_state:
@@ -21,101 +19,102 @@ with st.sidebar:
     st.header("⚙️ Kriteria Penilaian HR")
     
     job_role = st.text_input("Posisi Pekerjaan:", placeholder="Masukkan posisi pekerjaan")
+    job_description = st.text_area("Job Requirement & Description:", height=150, placeholder="Masukkan kualifikasi dan deskripsi pekerjaan")
     
-
-    job_description = st.text_area(
-        "Job Requirement & Description:",
-        height=200, 
-        placeholder="Masukkan kualifikasi, skill wajib, dan deskripsi pekerjaan"
+    st.subheader("🎯 Personalisasi Penilaian")
+    target_domain = st.selectbox("Target Domain (Opsional):", ["Auto-Detect", "Software / IT", "Data / AI", "Marketing", "Finance", "General"])
+    
+    # Daftar opsi bawaan untuk memudahkan HR
+    COMMON_KEYWORDS = ["B2B", "B2C", "Leadership", "Agile", "Scrum", "Problem Solving", "Analytics"]
+    COMMON_SKILLS = ["Python", "SQL", "Excel", "Java", "Tableau", "Machine Learning", "Digital Marketing"]
+    
+    custom_keywords = st.multiselect(
+        "Keyword Khusus:",
+        options=COMMON_KEYWORDS,
+        default=["Agile", "B2B"],
+        max_selections=20,
+        accept_new_options=True,
+        help="Pilih dari daftar atau ketik keyword baru lalu tekan Enter"
+    )
+    
+    custom_skills = st.multiselect(
+        "Skill Wajib:",
+        options=COMMON_SKILLS,
+        default=["Python", "SQL"],
+        max_selections=20,
+        accept_new_options=True,
+        help="Pilih dari daftar atau ketik skill baru lalu tekan Enter"
     )
     
     st.divider()
-    uploaded_files = st.file_uploader(
-        "Upload CV Pelamar (PDF/DOCX)", 
-        type=["pdf", "docx"], 
-        accept_multiple_files=True
-    )
+    uploaded_files = st.file_uploader("Upload CV Pelamar (PDF/DOCX)", type=["pdf", "docx"], accept_multiple_files=True)
 
-# 2. Proses Analisis
 if st.button("Jalankan Analisis Massal 🚀") and uploaded_files:
-    if not job_description.strip():
-        st.error("⚠️ Mohon isi Job Requirement & Description terlebih dahulu untuk acuan penilaian HR!")
+    if not job_description.strip() and not custom_keywords:
+        st.error("⚠️ Mohon isi minimal Job Description atau Keyword Khusus!")
     else:
         results = []
         raw_responses = {}
         
-        with st.status("Menganalisis dokumen terhadap Job Requirement...", expanded=True) as status:
-            for file in uploaded_files:
+        with st.status("Menganalisis dokumen...", expanded=True) as status:
+            for idx, file in enumerate(uploaded_files):
                 st.write(f"Menganalisis {file.name}...")
+                
+                unique_file_id = f"{idx}_{file.name}"
                 
                 files = {"file": (file.name, file.getvalue(), file.type)}
                 data = {
                     "job_role": job_role,
-                    "job_description": job_description
+                    "job_description": job_description,
+                    "target_domain": target_domain,
+                    "custom_keywords": ",".join(custom_keywords),
+                    "custom_skills": ",".join(custom_skills)
                 }
                 
                 try:
                     response = requests.post(f"{API_BASE_URL}/analyze", files=files, data=data)
-                    
                     if response.status_code == 200:
                         res_data = response.json()
-                        raw_responses[file.name] = res_data
+                        raw_responses[unique_file_id] = res_data
                         
-                        candidate = res_data.get("candidate", {})
-                        breakdown = res_data.get("score_breakdown", {})
-                        domain = res_data.get("domain", {})
+                        candidate = res_data.get("candidate", {}) or {}
+                        breakdown = res_data.get("score_breakdown", {}) or {}
+                        domain = res_data.get("domain", {}) or {}
                         
-                        name = candidate.get("name") or file.name
+                        name = candidate.get("name") or f"Kandidat {idx+1} ({file.name})"
                         phone = candidate.get("phone") or "N/A"
                         email = candidate.get("email") or "N/A"
                         
-                        if phone != "N/A":
-                            clean_phone = ''.join(filter(str.isdigit, phone))
-                            wa_link = f"https://wa.me/{clean_phone}"
-                        else:
-                            wa_link = None
+                        wa_link = f"https://wa.me/{''.join(filter(str.isdigit, phone))}" if phone != "N/A" else phone
                             
-                        # MENGHITUNG BOBOT PERSENTASE AKTUAL DARI MASING-MASING PARAMETER
-                        w_keyword = round(breakdown.get("keyword_relevance", 0) * 0.30)
-                        w_skills = round(breakdown.get("skill_relevance", 0) * 0.25)
-                        w_section = round(breakdown.get("section_completeness", 0) * 0.15)
-                        w_experience = round(breakdown.get("experience_clarity", 0) * 0.15)
-                        w_format = round(breakdown.get("formatting_score", 0) * 0.10)
-                        w_project = round(breakdown.get("project_impact", 0) * 0.05)
-                        
                         results.append({
                             "Nama Pelamar": name,
                             "Skor Match (%)": int(res_data.get("ats_score", 0)),
                             "Domain": domain.get("primary", "Unknown"),
-                            "Keyword (30%)": w_keyword,
-                            "Skills (25%)": w_skills,
-                            "Experience (15%)": w_experience,
-                            "Section (15%)": w_section,
-                            "Format (10%)": w_format,
-                            "Project (5%)": w_project,
-                            "WhatsApp": wa_link if wa_link else phone,
+                            "Keyword (30%)": round(breakdown.get("keyword_relevance", 0) * 0.30),
+                            "Skills (25%)": round(breakdown.get("skill_relevance", 0) * 0.25),
+                            "Experience (15%)": round(breakdown.get("experience_clarity", 0) * 0.15),
+                            "Section (15%)": round(breakdown.get("section_completeness", 0) * 0.15),
+                            "Format (10%)": round(breakdown.get("formatting_score", 0) * 0.10),
+                            "Project (5%)": round(breakdown.get("project_impact", 0) * 0.05),
+                            "WhatsApp": wa_link,
                             "Email": email
                         })
                     else:
                         st.error(f"Gagal menganalisis {file.name}. Error: {response.text}")
-                        
                 except Exception as e:
-                    st.error(f"Error saat menghubungi backend untuk {file.name}: {str(e)}")
+                    st.error(f"Error untuk {file.name}: {str(e)}")
                     
             status.update(label="Analisis Selesai!", state="complete", expanded=False)
 
-        # 3. Simpan hasil ke Session State
         if results:
             st.session_state.df = pd.DataFrame(results).sort_values(by="Skor Match (%)", ascending=False)
             st.session_state.raw_responses = raw_responses
             st.session_state.analysis_done = True
 
-# 4. Tampilkan Dashboard jika analisis sudah selesai
 if st.session_state.analysis_done and st.session_state.df is not None:
     df = st.session_state.df
-    raw_responses = st.session_state.raw_responses
     
-    # --- SECTION 1: ANALYTICS DASHBOARD ---
     st.divider()
     st.subheader("📊 Analytics Dashboard")
     col_m1, col_m2, col_m3 = st.columns(3)
@@ -125,68 +124,68 @@ if st.session_state.analysis_done and st.session_state.df is not None:
 
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        st.write("**Top Ranking Kandidat (Berdasarkan JD)**")
+        st.write("**Top Ranking Kandidat**")
         st.bar_chart(df.head(10).set_index("Nama Pelamar")["Skor Match (%)"])
     with col_c2:
         st.write("**Rata-rata Kontribusi Parameter**")
         avg_params = df[["Keyword (30%)", "Skills (25%)", "Experience (15%)", "Section (15%)", "Format (10%)", "Project (5%)"]].mean()
         st.bar_chart(avg_params)
 
-    # --- SECTION 2: TABEL RANKING LENGKAP ---
     st.divider()
-    st.subheader("📝 Daftar Ranking & Rincian Penilaian Kandidat")
+    st.subheader("📝 Daftar Ranking & Rincian Penilaian")
     
     st.data_editor(
         df,
         column_config={
-            "Skor Match (%)": st.column_config.ProgressColumn(
-                "Skor Total", 
-                help="Total Skor Kecocokan (Maksimal 100%)",
-                min_value=0, max_value=100, format="%d%%"
-            ),
+            "Skor Match (%)": st.column_config.ProgressColumn("Skor Total", min_value=0, max_value=100, format="%d%%"),
             "Keyword (30%)": st.column_config.NumberColumn("Keyword (30%)", format="%d%%"),
             "Skills (25%)": st.column_config.NumberColumn("Skills (25%)", format="%d%%"),
             "Experience (15%)": st.column_config.NumberColumn("Experience (15%)", format="%d%%"),
             "Section (15%)": st.column_config.NumberColumn("Section (15%)", format="%d%%"),
             "Format (10%)": st.column_config.NumberColumn("Format (10%)", format="%d%%"),
             "Project (5%)": st.column_config.NumberColumn("Project (5%)", format="%d%%"),
-            "Domain": st.column_config.TextColumn("Domain Klasifikasi"),
             "WhatsApp": st.column_config.LinkColumn("Hubungi", display_text="Chat 📲"),
-            "Email": st.column_config.TextColumn("Email Pelamar")
         },
         use_container_width=True, 
         hide_index=True, 
         disabled=True
     )
 
-    # --- SECTION 3: EXPORT & REPORT ---
     st.divider()
     st.subheader("📥 Export & Generate Report")
-    
-    col_e1, col_e2 = st.columns(2)
+    col_e1, col_e2 = st.columns([1, 2])
     
     with col_e1:
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             df.to_excel(writer, index=False)
-        st.download_button(
-            "Download Laporan Rekap (Excel) 📥", 
-            data=buffer.getvalue(), 
-            file_name="Laporan_HR_LionParcel.xlsx"
-        )
+        st.download_button("Download Laporan Rekap (Excel) 📥", data=buffer.getvalue(), file_name="Laporan_HR_LionParcel.xlsx")
         
     with col_e2:
         st.write("**Download Report Detail (PDF) per Kandidat:**")
-        for file_name, res_data in raw_responses.items():
-            try:
-                pdf_resp = requests.post(f"{API_BASE_URL}/download-report", json=res_data)
-                if pdf_resp.status_code == 200:
+        for unique_file_id, res_data in st.session_state.raw_responses.items():
+            col_btn, col_dl = st.columns([1, 1])
+            pdf_state_key = f"pdf_bytes_{unique_file_id}"
+            display_name = unique_file_id.split("_", 1)[1]
+            
+            with col_btn:
+                if st.button(f"⚙️ Generate Report {display_name}", key=f"btn_{unique_file_id}"):
+                    with st.spinner("Membuat PDF..."):
+                        try:
+                            pdf_resp = requests.post(f"{API_BASE_URL}/download-report", json=res_data)
+                            if pdf_resp.status_code == 200:
+                                st.session_state[pdf_state_key] = pdf_resp.content
+                            else:
+                                st.error("Gagal men-generate PDF")
+                        except Exception as e:
+                            st.error("Gagal menghubungi server")
+            
+            with col_dl:
+                if pdf_state_key in st.session_state:
                     st.download_button(
-                        label=f"📄 PDF Report - {file_name}",
-                        data=pdf_resp.content,
-                        file_name=f"ATS_Report_{file_name}.pdf",
+                        label=f"📥 Download {display_name}",
+                        data=st.session_state[pdf_state_key],
+                        file_name=f"ATS_Report_{display_name}.pdf",
                         mime="application/pdf",
-                        key=f"pdf_{file_name}"
+                        key=f"dl_{unique_file_id}"
                     )
-            except Exception as e:
-                st.error(f"Gagal generate PDF untuk {file_name}")
