@@ -13,7 +13,8 @@ from app.services.ats_scorer import ATSScorer
 from app.services.skill_extractor import SkillExtractor
 from app.services.domain_classifier import DomainClassifier
 from app.services.report_generator import ReportGenerator
-from app.models.schemas import AnalysisResponse
+from app.services.ai_service import ai_service # Tambahan Service AI
+from app.models.schemas import AnalysisResponse, AIReviewRequest, AIReviewResponse # Tambahan Schema AI
 
 app = FastAPI(
     title="ATS Resume Analyzer",
@@ -107,6 +108,7 @@ async def analyze_resume(
             issues=ats_analysis["issues"],
             suggestions=ats_analysis["suggestions"],
             keywords_analysis=ats_analysis["keywords_analysis"],
+            raw_text=parsed_data.get("raw_text", ""), # Tambahan pengembalian raw_text
             parsing_method=parsing_method,
             ocr_confidence=ocr_confidence
         )
@@ -137,3 +139,19 @@ async def download_report(request: Request):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- TAMBAHAN ENDPOINT AI ---
+@app.post("/api/ai-review", response_model=AIReviewResponse)
+async def get_ai_review(request: AIReviewRequest):
+    try:
+        review_text = ai_service.generate_review(
+            cv_text=request.cv_text,
+            job_description=request.job_description,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens
+        )
+        
+        return AIReviewResponse(success=True, review=review_text)
+        
+    except Exception as e:
+        return AIReviewResponse(success=False, review="", error=str(e))

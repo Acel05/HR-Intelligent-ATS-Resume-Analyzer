@@ -24,7 +24,6 @@ with st.sidebar:
     st.subheader("🎯 Personalisasi Penilaian")
     target_domain = st.selectbox("Target Domain (Opsional):", ["Auto-Detect", "Software / IT", "Data / AI", "Marketing", "Finance", "General"])
     
-    # Daftar opsi bawaan untuk memudahkan HR
     COMMON_KEYWORDS = ["B2B", "B2C", "Leadership", "Agile", "Scrum", "Problem Solving", "Analytics"]
     COMMON_SKILLS = ["Python", "SQL", "Excel", "Java", "Tableau", "Machine Learning", "Digital Marketing"]
     
@@ -45,6 +44,14 @@ with st.sidebar:
         accept_new_options=True,
         help="Pilih dari daftar atau ketik skill baru lalu tekan Enter"
     )
+    
+    st.divider()
+    
+    # --- KONFIGURASI AI (Tanpa API Key Input) ---
+    st.header("🤖 Konfigurasi AI Review")
+    ai_temperature = st.slider("Temperature (Objektif ↔ Kreatif):", min_value=0.0, max_value=1.0, value=0.7, step=0.1)
+    ai_max_tokens = st.slider("Max Tokens (Panjang Ulasan):", min_value=200, max_value=1500, value=800, step=100)
+    # --------------------------------------------
     
     st.divider()
     uploaded_files = st.file_uploader("Upload CV Pelamar (PDF/DOCX)", type=["pdf", "docx"], accept_multiple_files=True)
@@ -87,13 +94,9 @@ if st.button("Jalankan Analisis Massal 🚀") and uploaded_files:
                         
                         # --- LOGIKA WHATSAPP LINK ---
                         if phone != "N/A":
-                            # Hapus semua karakter non-angka (spasi, strip, tanda kurung, '+')
                             clean_phone = ''.join(filter(str.isdigit, phone))
-                            
-                            # Standarisasi format: awalan '0' menjadi '62'
                             if clean_phone.startswith('0'):
                                 clean_phone = '62' + clean_phone[1:]
-                            
                             wa_link = f"https://wa.me/{clean_phone}" if clean_phone else "N/A"
                         else:
                             wa_link = "N/A"
@@ -164,7 +167,7 @@ if st.session_state.analysis_done and st.session_state.df is not None:
     )
 
     st.divider()
-    st.subheader("📥 Export & Generate Report")
+    st.subheader("📥 Tindakan Lanjutan: Gen-AI & Report Export")
     col_e1, col_e2 = st.columns([1, 2])
     
     with col_e1:
@@ -174,30 +177,63 @@ if st.session_state.analysis_done and st.session_state.df is not None:
         st.download_button("Download Laporan Rekap (Excel) 📥", data=buffer.getvalue(), file_name="Laporan_HR_LionParcel.xlsx")
         
     with col_e2:
-        st.write("**Download Report Detail (PDF) per Kandidat:**")
+        st.write("**Detail Analisis Individual:**")
         for unique_file_id, res_data in st.session_state.raw_responses.items():
-            col_btn, col_dl = st.columns([1, 1])
-            pdf_state_key = f"pdf_bytes_{unique_file_id}"
             display_name = unique_file_id.split("_", 1)[1]
+            candidate_name = res_data.get("candidate", {}).get("name") or display_name
             
-            with col_btn:
-                if st.button(f"⚙️ Generate Report {display_name}", key=f"btn_{unique_file_id}"):
-                    with st.spinner("Membuat PDF..."):
-                        try:
-                            pdf_resp = requests.post(f"{API_BASE_URL}/download-report", json=res_data)
-                            if pdf_resp.status_code == 200:
-                                st.session_state[pdf_state_key] = pdf_resp.content
-                            else:
-                                st.error("Gagal men-generate PDF")
-                        except Exception as e:
-                            st.error("Gagal menghubungi server")
-            
-            with col_dl:
-                if pdf_state_key in st.session_state:
-                    st.download_button(
-                        label=f"📥 Download {display_name}",
-                        data=st.session_state[pdf_state_key],
-                        file_name=f"ATS_Report_{display_name}.pdf",
-                        mime="application/pdf",
-                        key=f"dl_{unique_file_id}"
-                    )
+            with st.expander(f"👤 {candidate_name} - Skor: {res_data.get('ats_score')}%"):
+                col_btn, col_dl, col_ai = st.columns([1, 1, 1])
+                pdf_state_key = f"pdf_bytes_{unique_file_id}"
+                ai_review_key = f"ai_review_{unique_file_id}"
+                
+                with col_btn:
+                    if st.button(f"⚙️ Generate PDF", key=f"btn_{unique_file_id}"):
+                        with st.spinner("Membuat PDF..."):
+                            try:
+                                pdf_resp = requests.post(f"{API_BASE_URL}/download-report", json=res_data)
+                                if pdf_resp.status_code == 200:
+                                    st.session_state[pdf_state_key] = pdf_resp.content
+                                else:
+                                    st.error("Gagal men-generate PDF")
+                            except Exception as e:
+                                st.error("Gagal menghubungi server")
+                
+                with col_dl:
+                    if pdf_state_key in st.session_state:
+                        st.download_button(
+                            label=f"📥 Download PDF",
+                            data=st.session_state[pdf_state_key],
+                            file_name=f"ATS_Report_{candidate_name}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_{unique_file_id}"
+                        )
+                
+                # --- TOMBOL GENERATIVE AI ---
+                with col_ai:
+                    if st.button(f"✨ Minta Ulasan AI", key=f"ai_btn_{unique_file_id}"):
+                        with st.spinner("AI sedang membaca CV..."):
+                            ai_payload = {
+                                "cv_text": res_data.get("raw_text", ""), 
+                                "job_description": job_description,
+                                "temperature": ai_temperature,
+                                "max_tokens": ai_max_tokens
+                            }
+                            try:
+                                ai_resp = requests.post(f"{API_BASE_URL}/ai-review", json=ai_payload)
+                                if ai_resp.status_code == 200:
+                                    result = ai_resp.json()
+                                    if result.get("success"):
+                                        st.session_state[ai_review_key] = result.get("review")
+                                    else:
+                                        st.error(result.get("error"))
+                                else:
+                                    st.error("Gagal menghubungi server AI")
+                            except Exception as e:
+                                st.error(f"Error AI: {str(e)}")
+                                    
+                # Menampilkan ulasan jika sudah dibuat
+                if ai_review_key in st.session_state:
+                    st.markdown("---")
+                    st.markdown("### ✨ Kesimpulan Generative AI")
+                    st.info(st.session_state[ai_review_key])

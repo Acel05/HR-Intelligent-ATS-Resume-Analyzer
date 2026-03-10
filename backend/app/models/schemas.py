@@ -114,6 +114,18 @@ class AnalysisResponse(BaseModel):
     issues: List[ATSIssue] = []
     suggestions: List[Suggestion] = []
     keywords_analysis: KeywordsAnalysis
+    raw_text: str = "" # Ditambahkan untuk mengirim teks mentah ke AI
     # OCR metadata
     parsing_method: str = "standard"  # "standard" | "ocr" | "ocr_unavailable"
     ocr_confidence: Optional[str] = None  # "low" | "medium" | "high" (only when OCR used)
+
+class AIReviewRequest(BaseModel):
+    cv_text: str
+    job_description: str
+    temperature: float = 0.7
+    max_tokens: int = 800
+
+class AIReviewResponse(BaseModel):
+    success: bool
+    review: str
+    error: Optional[str] = None
